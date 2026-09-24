@@ -6,12 +6,16 @@ import android.net.Uri
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.agent.DeviceActionDispatcher
+import com.example.agent.ToolExecutionResult
 import com.example.data.local.AppDatabase
 import com.example.data.local.PreferencesManager
 import com.example.data.local.UserSettings
 import com.example.data.local.entity.*
+import com.example.data.remote.GeminiFunctionCall
 import com.example.data.repository.*
 import com.example.domain.model.*
+import com.example.service.WakeWordService
 import com.example.utils.AppUtils
 import com.example.utils.SpeechManager
 import com.example.utils.TtsManager
@@ -32,6 +36,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val taskRepository: TaskRepository = TaskRepositoryImpl(db.taskDao())
     val memoryRepository: MemoryRepository = MemoryRepositoryImpl(db.memoryDao())
     val aiRepository: AIRepository = AIRepositoryImpl()
+    val deviceActionDispatcher: DeviceActionDispatcher = DeviceActionDispatcher(application)
 
     val speechManager = SpeechManager(application)
     val ttsManager = TtsManager(application)
@@ -292,7 +297,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _orbState.value = OrbState.THINKING
 
             val history = activeMessages.value
-            val result = aiRepository.generateResponse(
+            val result = aiRepository.generateAgenticResponse(
                 prompt = textToSend,
                 conversationHistory = history,
                 imageBitmap = imageToSend,
@@ -304,36 +309,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             _isAiGenerating.value = false
 
-            result.onSuccess { replyText ->
-                var isAction = false
-                try {
-                    val cleanReply = replyText.replace("```json", "").replace("```", "").trim()
-                    if (cleanReply.startsWith("{") && cleanReply.endsWith("}")) {
-                        if (cleanReply.contains("\"action\"")) {
-                            if (cleanReply.contains("\"create_note\"")) {
-                                handleCreateNoteAction(cleanReply, convId, langCode)
-                                isAction = true
-                            } else if (cleanReply.contains("\"create_task\"")) {
-                                handleCreateTaskAction(cleanReply, convId, langCode)
-                                isAction = true
-                            } else if (cleanReply.contains("\"open_app\"")) {
-                                handleOpenAppAction(cleanReply, convId, langCode)
-                                isAction = true
+            result.onSuccess { agenticResponse ->
+                val functionCall = agenticResponse.functionCall
+                if (functionCall != null) {
+                    handleAgenticFunctionCall(functionCall, convId, langCode)
+                } else {
+                    val replyText = agenticResponse.replyText
+                    var isAction = false
+                    try {
+                        val cleanReply = replyText.replace("```json", "").replace("```", "").trim()
+                        if (cleanReply.startsWith("{") && cleanReply.endsWith("}")) {
+                            if (cleanReply.contains("\"action\"")) {
+                                if (cleanReply.contains("\"create_note\"")) {
+                                    handleCreateNoteAction(cleanReply, convId, langCode)
+                                    isAction = true
+                                } else if (cleanReply.contains("\"create_task\"")) {
+                                    handleCreateTaskAction(cleanReply, convId, langCode)
+                                    isAction = true
+                                } else if (cleanReply.contains("\"open_app\"")) {
+                                    handleOpenAppAction(cleanReply, convId, langCode)
+                                    isAction = true
+                                }
                             }
                         }
+                    } catch (e: Exception) {
+                        // Ignore JSON parse errors
                     }
-                } catch (e: Exception) {
-                    // Ignore JSON parse errors
-                }
-                
-                if (!isAction) {
-                    chatRepository.saveMessage(convId, "ai", replyText, langCode)
-                    if (userSettings.value.isVoiceEnabled) {
-                        ttsManager.speak(
-                            text = replyText,
-                            isBengali = userSettings.value.language != AppLanguage.ENGLISH,
-                            speed = userSettings.value.speechSpeed
-                        )
+
+                    if (!isAction && replyText.isNotBlank()) {
+                        chatRepository.saveMessage(convId, "ai", replyText, langCode)
+                        if (userSettings.value.isVoiceEnabled) {
+                            ttsManager.speak(
+                                text = replyText,
+                                isBengali = userSettings.value.language != AppLanguage.ENGLISH,
+                                speed = userSettings.value.speechSpeed
+                            )
+                        }
                     }
                 }
             }.onFailure { error ->
@@ -352,6 +363,116 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 chatRepository.saveMessage(convId, "ai", errorMsg, langCode)
                 _orbState.value = OrbState.ERROR
+            }
+        }
+    }
+
+    private suspend fun handleAgenticFunctionCall(
+        call: GeminiFunctionCall,
+        convId: String,
+        langCode: String
+    ) {
+        val address = userSettings.value.preferredAddress
+        val isBn = userSettings.value.language != AppLanguage.ENGLISH
+        val args = call.args ?: emptyMap()
+
+        when (call.name) {
+            "open_app" -> {
+                val appName = args["appName"] ?: "app"
+                val ack = if (isBn) "জি $address, এখনই $appName ওপেন করছি।" else "Right away $address, opening $appName."
+                chatRepository.saveMessage(convId, "ai", ack, langCode)
+                if (userSettings.value.isVoiceEnabled) {
+                    ttsManager.speak(ack, isBn, userSettings.value.speechSpeed)
+                }
+                delay(400)
+                val execResult = deviceActionDispatcher.execute(call.name, args)
+                val status = if (execResult.success) {
+                    "🚀 $appName ${if (isBn) "চালু হয়েছে" else "launched"}"
+                } else {
+                    "⚠️ ${execResult.message}"
+                }
+                chatRepository.saveMessage(convId, "ai", status, langCode)
+            }
+            "play_youtube" -> {
+                val query = args["query"] ?: ""
+                val ack = if (isBn) "জি $address, ইউটিউবে '$query' চালিয়ে দিচ্ছি।" else "Playing '$query' on YouTube for you, $address."
+                chatRepository.saveMessage(convId, "ai", ack, langCode)
+                if (userSettings.value.isVoiceEnabled) {
+                    ttsManager.speak(ack, isBn, userSettings.value.speechSpeed)
+                }
+                delay(400)
+                deviceActionDispatcher.execute(call.name, args)
+            }
+            "make_phone_call" -> {
+                val contact = args["contactName"]
+                val phone = args["phoneNumber"]
+                val target = contact ?: phone ?: "contact"
+                val ack = if (isBn) "জি $address, $target-কে কল করছি।" else "Calling $target for you now, $address."
+                chatRepository.saveMessage(convId, "ai", ack, langCode)
+                if (userSettings.value.isVoiceEnabled) {
+                    ttsManager.speak(ack, isBn, userSettings.value.speechSpeed)
+                }
+                delay(400)
+                val result = deviceActionDispatcher.execute(call.name, args)
+                if (!result.success) {
+                    chatRepository.saveMessage(convId, "ai", "📞 ${result.message}", langCode)
+                }
+            }
+            "send_sms" -> {
+                val contact = args["contactName"]
+                val phone = args["phoneNumber"]
+                val target = contact ?: phone ?: "recipient"
+                val ack = if (isBn) "জি $address, $target-কে মেসেজ পাঠিয়ে দিচ্ছি।" else "Sending your message to $target, $address."
+                chatRepository.saveMessage(convId, "ai", ack, langCode)
+                if (userSettings.value.isVoiceEnabled) {
+                    ttsManager.speak(ack, isBn, userSettings.value.speechSpeed)
+                }
+                delay(400)
+                val result = deviceActionDispatcher.execute(call.name, args)
+                val statusMsg = if (result.success) "✉️ ${result.message}" else "⚠️ ${result.message}"
+                chatRepository.saveMessage(convId, "ai", statusMsg, langCode)
+            }
+            "device_toggle" -> {
+                val result = deviceActionDispatcher.execute(call.name, args)
+                val desc = if (result.success) {
+                    if (isBn) "জি $address, ${result.message}।" else "Done $address, ${result.message}."
+                } else {
+                    result.message
+                }
+                chatRepository.saveMessage(convId, "ai", "⚙️ $desc", langCode)
+                if (userSettings.value.isVoiceEnabled) {
+                    ttsManager.speak(desc, isBn, userSettings.value.speechSpeed)
+                }
+            }
+            "create_note" -> {
+                val title = args["title"] ?: "Saved Note"
+                val content = args["content"] ?: ""
+                val category = args["category"] ?: "General"
+                notesRepository.addNote(title, content, category)
+                val ack = if (isBn) "জি $address, নোটটি সেভ করে নিয়েছি: '$title'।" else "I've saved that note for you, $address: '$title'."
+                chatRepository.saveMessage(convId, "ai", "📝 $ack", langCode)
+                if (userSettings.value.isVoiceEnabled) {
+                    ttsManager.speak(ack, isBn, userSettings.value.speechSpeed)
+                }
+            }
+            "create_task" -> {
+                val title = args["title"] ?: "Task"
+                val desc = args["description"] ?: ""
+                val priority = args["priority"] ?: "MEDIUM"
+                val due = args["dueTimeString"]
+                taskRepository.addTask(title, desc, priority, null, due)
+                val ack = if (isBn) "জি $address, টাস্কটি আপনার শিডিউলে যোগ করা হয়েছে: '$title'।" else "Task added to your schedule, $address: '$title'."
+                chatRepository.saveMessage(convId, "ai", "📌 $ack", langCode)
+                if (userSettings.value.isVoiceEnabled) {
+                    ttsManager.speak(ack, isBn, userSettings.value.speechSpeed)
+                }
+            }
+            else -> {
+                val result = deviceActionDispatcher.execute(call.name, args)
+                chatRepository.saveMessage(convId, "ai", result.message, langCode)
+                if (userSettings.value.isVoiceEnabled) {
+                    ttsManager.speak(result.message, isBn, userSettings.value.speechSpeed)
+                }
             }
         }
     }
@@ -519,6 +640,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Voice Mode
     fun startVoiceListening() {
+        // Immediate barge-in: cancel any active TTS audio
+        ttsManager.stop()
         val langCode = if (userSettings.value.language == AppLanguage.ENGLISH) "en-US" else "bn-BD"
         speechManager.startListening(
             languageCode = langCode,
@@ -536,6 +659,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopSpeaking() {
         ttsManager.stop()
+    }
+
+    fun setWakeWordServiceEnabled(enabled: Boolean) {
+        val app = getApplication<Application>()
+        if (enabled) {
+            WakeWordService.start(app)
+        } else {
+            WakeWordService.stop(app)
+        }
+    }
+
+    fun setFloatingOverlayEnabled(enabled: Boolean): Boolean {
+        val app = getApplication<Application>()
+        return if (enabled) {
+            val started = com.example.service.FloatingNovaController.start(app)
+            preferencesManager.updateFloatingOverlayEnabled(started)
+            started
+        } else {
+            com.example.service.FloatingNovaController.stop(app)
+            preferencesManager.updateFloatingOverlayEnabled(false)
+            false
+        }
     }
 
     // Study Assistant

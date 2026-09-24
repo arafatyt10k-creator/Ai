@@ -178,6 +178,11 @@ fun HomeScreen(
                 .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Agentic Device Permissions Banner
+            com.example.ui.components.AgentPermissionsBanner(
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
             Spacer(modifier = Modifier.height(10.dp))
 
             // AI Orb Centerpiece

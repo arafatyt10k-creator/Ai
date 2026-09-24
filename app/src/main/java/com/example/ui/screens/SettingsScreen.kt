@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +57,8 @@ fun SettingsScreen(
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            com.example.ui.components.AgentPermissionsBanner()
+
             // Assistant Identity Card
             FuturisticCard(
                 borderColor = CyanNeon.copy(alpha = 0.3f),
@@ -116,7 +119,63 @@ fun SettingsScreen(
 
                     Switch(
                         checked = settings.isWakeWordEnabled,
-                        onCheckedChange = { viewModel.preferencesManager.updateWakeWordEnabled(it) },
+                        onCheckedChange = { enabled ->
+                            viewModel.preferencesManager.updateWakeWordEnabled(enabled)
+                            viewModel.setWakeWordServiceEnabled(enabled)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = CyanNeon,
+                            checkedTrackColor = CyanNeon.copy(alpha = 0.3f)
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = CyanNeon.copy(alpha = 0.15f))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Jarvis Floating Screen Overlay
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (isBengali) "ভাসমান জার্ভিস স্ক্রিন অর্ব" else "Jarvis Floating Screen Orb",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(CyanNeon.copy(alpha = 0.2f))
+                                    .padding(horizontal = 5.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "OVERLAY",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = CyanNeon,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                            }
+                        }
+                        Text(
+                            text = if (isBengali) "যেকোনো অ্যাপের উপরে সার্বক্ষণিক ভাসমান এআই বাবল" else "Always-on glowing floating bubble over any app",
+                            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        )
+                    }
+
+                    val isOverlayRunning by com.example.service.FloatingNovaController.isOverlayActive.collectAsState()
+
+                    Switch(
+                        checked = isOverlayRunning || settings.isFloatingOverlayEnabled,
+                        onCheckedChange = { enable ->
+                            viewModel.setFloatingOverlayEnabled(enable)
+                        },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = CyanNeon,
                             checkedTrackColor = CyanNeon.copy(alpha = 0.3f)

@@ -7,19 +7,60 @@ import com.squareup.moshi.JsonClass
 data class GeminiRequest(
     @Json(name = "contents") val contents: List<GeminiContent>,
     @Json(name = "systemInstruction") val systemInstruction: GeminiContent? = null,
-    @Json(name = "generationConfig") val generationConfig: GeminiGenerationConfig? = null
+    @Json(name = "generationConfig") val generationConfig: GeminiGenerationConfig? = null,
+    @Json(name = "tools") val tools: List<GeminiTool>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiTool(
+    @Json(name = "functionDeclarations") val functionDeclarations: List<GeminiFunctionDeclaration>
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiFunctionDeclaration(
+    @Json(name = "name") val name: String,
+    @Json(name = "description") val description: String,
+    @Json(name = "parameters") val parameters: GeminiFunctionParameters? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiFunctionParameters(
+    @Json(name = "type") val type: String = "OBJECT",
+    @Json(name = "properties") val properties: Map<String, GeminiParameterProperty>,
+    @Json(name = "required") val required: List<String> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiParameterProperty(
+    @Json(name = "type") val type: String,
+    @Json(name = "description") val description: String? = null,
+    @Json(name = "enum") val enum: List<String>? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GeminiContent(
-    @Json(name = "role") val role: String? = null, // "user" or "model"
+    @Json(name = "role") val role: String? = null, // "user", "model", or "function"
     @Json(name = "parts") val parts: List<GeminiPart>
 )
 
 @JsonClass(generateAdapter = true)
 data class GeminiPart(
     @Json(name = "text") val text: String? = null,
-    @Json(name = "inlineData") val inlineData: GeminiInlineData? = null
+    @Json(name = "inlineData") val inlineData: GeminiInlineData? = null,
+    @Json(name = "functionCall") val functionCall: GeminiFunctionCall? = null,
+    @Json(name = "functionResponse") val functionResponse: GeminiFunctionResponse? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiFunctionCall(
+    @Json(name = "name") val name: String,
+    @Json(name = "args") val args: Map<String, String>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeminiFunctionResponse(
+    @Json(name = "name") val name: String,
+    @Json(name = "response") val response: Map<String, String>
 )
 
 @JsonClass(generateAdapter = true)
@@ -54,3 +95,4 @@ data class GeminiApiError(
     @Json(name = "message") val message: String? = null,
     @Json(name = "status") val status: String? = null
 )
+

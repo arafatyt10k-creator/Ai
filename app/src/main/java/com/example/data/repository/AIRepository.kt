@@ -3,6 +3,7 @@ package com.example.data.repository
 import android.graphics.Bitmap
 import android.util.Base64
 import com.example.BuildConfig
+import com.example.agent.GeminiToolDefinitions
 import com.example.config.AppConfig
 import com.example.data.local.entity.ChatMessageEntity
 import com.example.data.remote.*
@@ -11,7 +12,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
+data class AgenticAiResponse(
+    val replyText: String,
+    val functionCall: GeminiFunctionCall? = null
+)
+
 interface AIRepository {
+    suspend fun generateAgenticResponse(
+        prompt: String,
+        conversationHistory: List<ChatMessageEntity> = emptyList(),
+        imageBitmap: Bitmap? = null,
+        systemInstruction: String? = null,
+        language: AppLanguage = AppLanguage.BENGALI,
+        aiStyle: AiResponseStyle = AiResponseStyle.BALANCED,
+        assistantName: String = "NOVA",
+        preferredAddress: String = "Boss"
+    ): Result<AgenticAiResponse>
+
     suspend fun generateResponse(
         prompt: String,
         conversationHistory: List<ChatMessageEntity> = emptyList(),
@@ -21,6 +38,15 @@ interface AIRepository {
         aiStyle: AiResponseStyle = AiResponseStyle.BALANCED,
         assistantName: String = "NOVA",
         preferredAddress: String = "Boss"
+    ): Result<String>
+
+    suspend fun sendFunctionResponse(
+        functionName: String,
+        functionResult: String,
+        conversationHistory: List<ChatMessageEntity> = emptyList(),
+        assistantName: String = "NOVA",
+        preferredAddress: String = "Boss",
+        language: AppLanguage = AppLanguage.BENGALI
     ): Result<String>
 
     suspend fun translateText(
@@ -83,7 +109,7 @@ class AIRepositoryImpl(
         return apiKey
     }
 
-    override suspend fun generateResponse(
+    override suspend fun generateAgenticResponse(
         prompt: String,
         conversationHistory: List<ChatMessageEntity>,
         imageBitmap: Bitmap?,
@@ -92,7 +118,7 @@ class AIRepositoryImpl(
         aiStyle: AiResponseStyle,
         assistantName: String,
         preferredAddress: String
-    ): Result<String> = withContext(Dispatchers.IO) {
+    ): Result<AgenticAiResponse> = withContext(Dispatchers.IO) {
         try {
             val apiKey = getApiKey()
             val model = if (imageBitmap != null) AppConfig.DEFAULT_IMAGE_MODEL else AppConfig.DEFAULT_TEXT_MODEL
@@ -107,18 +133,11 @@ class AIRepositoryImpl(
                 .replace("{{ASSISTANT_NAME}}", assistantName)
                 .replace("{{ADDRESS}}", preferredAddress)
             
-            val sysText = baseSysText + "\n" + aiStyle.promptModifier + "\n" + """
-            
-            If the user explicitly asks to CREATE A NOTE, REMINDER/TASK, or OPEN AN APP (YouTube, Chrome, Facebook, etc.), you must return ONLY a JSON object and absolutely no other text, markdown, or backticks.
-            For Note: {"action": "create_note", "title": "short title", "content": "note content", "category": "General"}
-            For Task/Reminder: {"action": "create_task", "title": "task title", "description": "details", "priority": "HIGH|MEDIUM|LOW", "dueTimeString": "time/date if mentioned"}
-            For Open App: {"action": "open_app", "package": "app_name_or_keyword"}
-            If it's a normal question or conversation, just answer normally. Never return JSON for normal chat.
-            """.trimIndent()
+            val sysText = baseSysText + "\n" + aiStyle.promptModifier
 
             val contents = mutableListOf<GeminiContent>()
             
-            // Add up to 6 recent history turns for context
+            // Add recent history turns for context
             val recentHistory = conversationHistory.takeLast(6)
             for (msg in recentHistory) {
                 val role = if (msg.sender == "user") "user" else "model"
@@ -155,19 +174,115 @@ class AIRepositoryImpl(
                 generationConfig = GeminiGenerationConfig(
                     temperature = 0.7f,
                     maxOutputTokens = if (aiStyle == AiResponseStyle.SHORT) 512 else 2048
-                )
+                ),
+                tools = GeminiToolDefinitions.allTools
             )
 
             val response = apiService.generateContent(model, apiKey, request)
-            val textResult = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            val candidateParts = response.candidates?.firstOrNull()?.content?.parts ?: emptyList()
             
+            // 1. Check for native Gemini function call
+            val funcPart = candidateParts.firstOrNull { it.functionCall != null }
+            if (funcPart?.functionCall != null) {
+                val call = funcPart.functionCall
+                val text = candidateParts.firstOrNull { !it.text.isNullOrBlank() }?.text ?: ""
+                return@withContext Result.success(
+                    AgenticAiResponse(
+                        replyText = text.trim(),
+                        functionCall = call
+                    )
+                )
+            }
+
+            // 2. Standard text response
+            val textResult = candidateParts.firstOrNull { !it.text.isNullOrBlank() }?.text
             if (!textResult.isNullOrBlank()) {
-                Result.success(textResult.trim())
+                Result.success(AgenticAiResponse(replyText = textResult.trim()))
             } else {
                 Result.failure(Exception("EMPTY_RESPONSE"))
             }
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    override suspend fun generateResponse(
+        prompt: String,
+        conversationHistory: List<ChatMessageEntity>,
+        imageBitmap: Bitmap?,
+        systemInstruction: String?,
+        language: AppLanguage,
+        aiStyle: AiResponseStyle,
+        assistantName: String,
+        preferredAddress: String
+    ): Result<String> {
+        val result = generateAgenticResponse(
+            prompt = prompt,
+            conversationHistory = conversationHistory,
+            imageBitmap = imageBitmap,
+            systemInstruction = systemInstruction,
+            language = language,
+            aiStyle = aiStyle,
+            assistantName = assistantName,
+            preferredAddress = preferredAddress
+        )
+        return result.map { it.replyText }
+    }
+
+    override suspend fun sendFunctionResponse(
+        functionName: String,
+        functionResult: String,
+        conversationHistory: List<ChatMessageEntity>,
+        assistantName: String,
+        preferredAddress: String,
+        language: AppLanguage
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val apiKey = getApiKey()
+            val sysInstruction = if (language == AppLanguage.ENGLISH) {
+                AppConfig.DEFAULT_SYSTEM_INSTRUCTION_EN
+            } else {
+                AppConfig.DEFAULT_SYSTEM_INSTRUCTION_BN
+            }.replace("{{ASSISTANT_NAME}}", assistantName).replace("{{ADDRESS}}", preferredAddress)
+
+            val contents = mutableListOf<GeminiContent>()
+            val recentHistory = conversationHistory.takeLast(4)
+            for (msg in recentHistory) {
+                val role = if (msg.sender == "user") "user" else "model"
+                contents.add(GeminiContent(role = role, parts = listOf(GeminiPart(text = msg.text))))
+            }
+
+            // Send tool result back as function turn
+            contents.add(
+                GeminiContent(
+                    role = "function",
+                    parts = listOf(
+                        GeminiPart(
+                            functionResponse = GeminiFunctionResponse(
+                                name = functionName,
+                                response = mapOf("result" to functionResult)
+                            )
+                        )
+                    )
+                )
+            )
+
+            val request = GeminiRequest(
+                contents = contents,
+                systemInstruction = GeminiContent(parts = listOf(GeminiPart(text = sysInstruction))),
+                generationConfig = GeminiGenerationConfig(temperature = 0.7f, maxOutputTokens = 512),
+                tools = GeminiToolDefinitions.allTools
+            )
+
+            val response = apiService.generateContent(AppConfig.DEFAULT_TEXT_MODEL, apiKey, request)
+            val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            if (!text.isNullOrBlank()) {
+                Result.success(text.trim())
+            } else {
+                Result.success(functionResult)
+            }
+        } catch (e: Exception) {
+            Result.success(functionResult)
         }
     }
 

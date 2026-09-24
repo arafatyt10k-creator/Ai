@@ -22,6 +22,7 @@ data class UserSettings(
     val assistantName: String = "NOVA",
     val preferredAddress: String = "Boss",
     val isWakeWordEnabled: Boolean = true,
+    val isFloatingOverlayEnabled: Boolean = false,
     val isOnboardingCompleted: Boolean = false
 )
 
@@ -44,6 +45,7 @@ class PreferencesManager(context: Context) {
         val assistantName = prefs.getString(KEY_ASSISTANT_NAME, "NOVA") ?: "NOVA"
         val preferredAddress = prefs.getString(KEY_PREFERRED_ADDRESS, "Boss") ?: "Boss"
         val wakeWordEnabled = prefs.getBoolean(KEY_WAKE_WORD_ENABLED, true)
+        val floatingOverlayEnabled = prefs.getBoolean(KEY_FLOATING_OVERLAY_ENABLED, false)
         val onboarding = prefs.getBoolean(KEY_ONBOARDING, false)
 
         return UserSettings(
@@ -58,6 +60,7 @@ class PreferencesManager(context: Context) {
             assistantName = assistantName,
             preferredAddress = preferredAddress,
             isWakeWordEnabled = wakeWordEnabled,
+            isFloatingOverlayEnabled = floatingOverlayEnabled,
             isOnboardingCompleted = onboarding
         )
     }
@@ -117,6 +120,11 @@ class PreferencesManager(context: Context) {
         _settings.value = _settings.value.copy(isWakeWordEnabled = enabled)
     }
 
+    fun updateFloatingOverlayEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_FLOATING_OVERLAY_ENABLED, enabled).apply()
+        _settings.value = _settings.value.copy(isFloatingOverlayEnabled = enabled)
+    }
+
     fun completeOnboarding() {
         prefs.edit().putBoolean(KEY_ONBOARDING, true).apply()
         _settings.value = _settings.value.copy(isOnboardingCompleted = true)
@@ -134,6 +142,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_ASSISTANT_NAME = "key_assistant_name"
         private const val KEY_PREFERRED_ADDRESS = "key_preferred_address"
         private const val KEY_WAKE_WORD_ENABLED = "key_wake_word_enabled"
+        private const val KEY_FLOATING_OVERLAY_ENABLED = "key_floating_overlay_enabled"
         private const val KEY_ONBOARDING = "key_onboarding"
     }
 }
