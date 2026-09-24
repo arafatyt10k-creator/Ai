@@ -12,12 +12,15 @@ import com.example.data.local.UserSettings
 import com.example.data.local.entity.*
 import com.example.data.repository.*
 import com.example.domain.model.*
+import com.example.utils.AppUtils
 import com.example.utils.SpeechManager
 import com.example.utils.TtsManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.random.Random
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -267,42 +270,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val langCode = userSettings.value.language.code
             chatRepository.saveMessage(convId, "user", textToSend, langCode, imageUriToSend)
 
-            // Check if user said "Save this as a note"
             val lower = textToSend.lowercase()
-            if (lower.contains("save this as a note") || lower.contains("নোট হিসেবে সেভ করো") || lower.contains("নোট রাখো")) {
-                notesRepository.addNote(
-                    title = "Quick Saved Note",
-                    content = textToSend,
-                    category = "AI Saved"
-                )
-                val reply = if (userSettings.value.language == AppLanguage.ENGLISH) {
-                    "✅ Saved this as a note for you in your Notes section!"
-                } else {
-                    "✅ আপনার নোটটি সফলভাবে নোটস সেকশনে সংরক্ষণ করা হয়েছে!"
-                }
-                chatRepository.saveMessage(convId, "ai", reply, langCode)
+            val assistantName = userSettings.value.assistantName.lowercase()
+            
+            // Check if it's just the wake word
+            val isWakeOnly = lower == assistantName || 
+                             lower == "hey $assistantName" || 
+                             lower == "হে $assistantName" ||
+                             lower == "নোভা" || 
+                             lower == "হে নোভা" ||
+                             lower == "নোভা কি শুনতে পাচ্ছ" ||
+                             lower == "$assistantName, are you there"
+            
+            if (isWakeOnly) {
+                handleWakeWordOnly(convId, langCode)
                 return@launch
-            }
-
-            // Check natural language task creation
-            if (lower.startsWith("remind me") || lower.startsWith("মনে করিয়ে দাও") || lower.startsWith("টাস্ক তৈরি করো")) {
-                val parsed = aiRepository.parseTaskFromNaturalLanguage(textToSend, userSettings.value.language).getOrNull()
-                if (parsed != null) {
-                    taskRepository.addTask(
-                        title = parsed.title,
-                        description = parsed.description,
-                        priority = parsed.priority.name,
-                        dueDateMillis = parsed.dueDateMillis,
-                        dueTimeString = parsed.timeString
-                    )
-                    val reply = if (userSettings.value.language == AppLanguage.ENGLISH) {
-                        "📌 Task created: '${parsed.title}' (${parsed.timeString ?: "Today"})"
-                    } else {
-                        "📌 নতুন টাস্ক যুক্ত হয়েছে: '${parsed.title}' (${parsed.timeString ?: "আজ"})"
-                    }
-                    chatRepository.saveMessage(convId, "ai", reply, langCode)
-                    return@launch
-                }
             }
 
             // AI Generation
@@ -315,7 +297,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 conversationHistory = history,
                 imageBitmap = imageToSend,
                 language = userSettings.value.language,
-                aiStyle = userSettings.value.aiStyle
+                aiStyle = userSettings.value.aiStyle,
+                assistantName = userSettings.value.assistantName,
+                preferredAddress = userSettings.value.preferredAddress
             )
 
             _isAiGenerating.value = false
@@ -325,51 +309,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 try {
                     val cleanReply = replyText.replace("```json", "").replace("```", "").trim()
                     if (cleanReply.startsWith("{") && cleanReply.endsWith("}")) {
-                        // Quick check for action
                         if (cleanReply.contains("\"action\"")) {
                             if (cleanReply.contains("\"create_note\"")) {
-                                val titleMatch = "\"title\"\\s*:\\s*\"([^\"]+)\"".toRegex().find(cleanReply)
-                                val contentMatch = "\"content\"\\s*:\\s*\"([^\"]*)\"".toRegex().find(cleanReply)
-                                val categoryMatch = "\"category\"\\s*:\\s*\"([^\"]*)\"".toRegex().find(cleanReply)
-                                
-                                val t = titleMatch?.groupValues?.get(1) ?: "Saved Note"
-                                val c = contentMatch?.groupValues?.get(1) ?: ""
-                                val cat = categoryMatch?.groupValues?.get(1) ?: "AI Saved"
-                                
-                                notesRepository.addNote(t, c, cat)
-                                
-                                val reply = if (userSettings.value.language == AppLanguage.ENGLISH) {
-                                    "✅ Saved this as a note for you in your Notes section!"
-                                } else {
-                                    "✅ আপনার নোটটি সফলভাবে নোটস সেকশনে সংরক্ষণ করা হয়েছে!"
-                                }
-                                chatRepository.saveMessage(convId, "ai", reply, langCode)
+                                handleCreateNoteAction(cleanReply, convId, langCode)
                                 isAction = true
                             } else if (cleanReply.contains("\"create_task\"")) {
-                                val titleMatch = "\"title\"\\s*:\\s*\"([^\"]+)\"".toRegex().find(cleanReply)
-                                val descMatch = "\"description\"\\s*:\\s*\"([^\"]*)\"".toRegex().find(cleanReply)
-                                val prioMatch = "\"priority\"\\s*:\\s*\"([^\"]+)\"".toRegex().find(cleanReply)
-                                val timeMatch = "\"dueTimeString\"\\s*:\\s*\"([^\"]*)\"".toRegex().find(cleanReply)
-                                
-                                val t = titleMatch?.groupValues?.get(1) ?: "Task"
-                                val d = descMatch?.groupValues?.get(1) ?: ""
-                                val p = prioMatch?.groupValues?.get(1) ?: "MEDIUM"
-                                val timeStr = timeMatch?.groupValues?.get(1)?.takeIf { it.isNotBlank() && it != "null" }
-                                
-                                taskRepository.addTask(t, d, p, null, timeStr)
-                                
-                                val reply = if (userSettings.value.language == AppLanguage.ENGLISH) {
-                                    "📌 Task created: '$t'" + (if (timeStr != null) " ($timeStr)" else "")
-                                } else {
-                                    "📌 নতুন টাস্ক যুক্ত হয়েছে: '$t'" + (if (timeStr != null) " ($timeStr)" else "")
-                                }
-                                chatRepository.saveMessage(convId, "ai", reply, langCode)
+                                handleCreateTaskAction(cleanReply, convId, langCode)
+                                isAction = true
+                            } else if (cleanReply.contains("\"open_app\"")) {
+                                handleOpenAppAction(cleanReply, convId, langCode)
                                 isAction = true
                             }
                         }
                     }
                 } catch (e: Exception) {
-                    // Ignore JSON parse errors, treat as normal text
+                    // Ignore JSON parse errors
                 }
                 
                 if (!isAction) {
@@ -398,6 +352,131 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 chatRepository.saveMessage(convId, "ai", errorMsg, langCode)
                 _orbState.value = OrbState.ERROR
+            }
+        }
+    }
+
+    private suspend fun handleWakeWordOnly(convId: String, langCode: String) {
+        val address = userSettings.value.preferredAddress
+        val isBn = userSettings.value.language != AppLanguage.ENGLISH
+        
+        val acknowledgementsBn = listOf(
+            "জি $address, বলুন। কীভাবে সাহায্য করতে পারি?",
+            "জি $address, বলুন।",
+            "জি $address, আমি শুনছি।",
+            "বলুন $address, কী করতে পারি?",
+            "জি, শুনছি $address।",
+            "অবশ্যই $address। বলুন।"
+        )
+        
+        val acknowledgementsEn = listOf(
+            "Yes $address, how can I help you?",
+            "I'm listening $address.",
+            "Yes $address, I'm here.",
+            "Tell me $address, what can I do for you?",
+            "Ready $address, please go ahead."
+        )
+        
+        val reply = if (isBn) {
+            acknowledgementsBn[Random.nextInt(acknowledgementsBn.size)]
+        } else {
+            acknowledgementsEn[Random.nextInt(acknowledgementsEn.size)]
+        }
+        
+        _orbState.value = OrbState.WAKE_DETECTED
+        delay(500)
+        chatRepository.saveMessage(convId, "ai", reply, langCode)
+        
+        if (userSettings.value.isVoiceEnabled) {
+            ttsManager.speak(reply, isBn, userSettings.value.speechSpeed)
+            // Wait for speaking to finish or a timeout
+            delay(1500)
+        }
+        
+        // Auto start listening
+        startVoiceListening()
+    }
+
+    private suspend fun handleCreateNoteAction(json: String, convId: String, langCode: String) {
+        val titleMatch = "\"title\"\\s*:\\s*\"([^\"]+)\"".toRegex().find(json)
+        val contentMatch = "\"content\"\\s*:\\s*\"([^\"]*)\"".toRegex().find(json)
+        val categoryMatch = "\"category\"\\s*:\\s*\"([^\"]*)\"".toRegex().find(json)
+        
+        val t = titleMatch?.groupValues?.get(1) ?: "Saved Note"
+        val c = contentMatch?.groupValues?.get(1) ?: ""
+        val cat = categoryMatch?.groupValues?.get(1) ?: "AI Saved"
+        
+        val address = userSettings.value.preferredAddress
+        val ack = if (userSettings.value.language == AppLanguage.ENGLISH) {
+            "Of course $address, saving that note for you."
+        } else {
+            "অবশ্যই $address, আপনার নোটটি সেভ করছি।"
+        }
+        
+        chatRepository.saveMessage(convId, "ai", ack, langCode)
+        if (userSettings.value.isVoiceEnabled) ttsManager.speak(ack, userSettings.value.language != AppLanguage.ENGLISH)
+        
+        delay(1000)
+        notesRepository.addNote(t, c, cat)
+        
+        val done = if (userSettings.value.language == AppLanguage.ENGLISH) {
+            "✅ Note saved: '$t'"
+        } else {
+            "✅ নোট সেভ হয়েছে: '$t'"
+        }
+        chatRepository.saveMessage(convId, "ai", done, langCode)
+    }
+
+    private suspend fun handleCreateTaskAction(json: String, convId: String, langCode: String) {
+        val titleMatch = "\"title\"\\s*:\\s*\"([^\"]+)\"".toRegex().find(json)
+        val descMatch = "\"description\"\\s*:\\s*\"([^\"]*)\"".toRegex().find(json)
+        val prioMatch = "\"priority\"\\s*:\\s*\"([^\"]+)\"".toRegex().find(json)
+        val timeMatch = "\"dueTimeString\"\\s*:\\s*\"([^\"]*)\"".toRegex().find(json)
+        
+        val t = titleMatch?.groupValues?.get(1) ?: "Task"
+        val d = descMatch?.groupValues?.get(1) ?: ""
+        val p = prioMatch?.groupValues?.get(1) ?: "MEDIUM"
+        val timeStr = timeMatch?.groupValues?.get(1)?.takeIf { it.isNotBlank() && it != "null" }
+        
+        val address = userSettings.value.preferredAddress
+        val ack = if (userSettings.value.language == AppLanguage.ENGLISH) {
+            "Sure $address, I'm setting a reminder for that."
+        } else {
+            "অবশ্যই $address, আমি রিমাইন্ডার সেট করছি।"
+        }
+        
+        chatRepository.saveMessage(convId, "ai", ack, langCode)
+        if (userSettings.value.isVoiceEnabled) ttsManager.speak(ack, userSettings.value.language != AppLanguage.ENGLISH)
+        
+        delay(1000)
+        taskRepository.addTask(t, d, p, null, timeStr)
+        
+        val done = if (userSettings.value.language == AppLanguage.ENGLISH) {
+            "📌 Task created: '$t'" + (if (timeStr != null) " ($timeStr)" else "")
+        } else {
+            "📌 নতুন টাস্ক যুক্ত হয়েছে: '$t'" + (if (timeStr != null) " ($timeStr)" else "")
+        }
+        chatRepository.saveMessage(convId, "ai", done, langCode)
+    }
+
+    private suspend fun handleOpenAppAction(json: String, convId: String, langCode: String) {
+        val packageMatch = "\"package\"\\s*:\\s*\"([^\"]+)\"".toRegex().find(json)
+        val appName = packageMatch?.groupValues?.get(1) ?: ""
+        
+        if (appName.isNotBlank()) {
+            val address = userSettings.value.preferredAddress
+            val ack = if (userSettings.value.language == AppLanguage.ENGLISH) {
+                "Certainly $address, opening $appName."
+            } else {
+                "অবশ্যই $address, $appName খুলছি।"
+            }
+            
+            chatRepository.saveMessage(convId, "ai", ack, langCode)
+            if (userSettings.value.isVoiceEnabled) ttsManager.speak(ack, userSettings.value.language != AppLanguage.ENGLISH)
+            
+            delay(800)
+            withContext(Dispatchers.Main) {
+                AppUtils.openApp(getApplication(), appName)
             }
         }
     }

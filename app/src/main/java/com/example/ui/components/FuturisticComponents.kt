@@ -169,6 +169,7 @@ fun OrbStatusPill(
 ) {
     val (statusText, statusColor) = when (state) {
         OrbState.IDLE -> (if (isBengali) "সহায়তায় প্রস্তুত" else "Ready to Help") to CyanNeon
+        OrbState.WAKE_DETECTED -> (if (isBengali) "জি বস!" else "Awaiting...") to OrbThinkingBlue
         OrbState.LISTENING -> (if (isBengali) "শুনছি..." else "Listening...") to OrbListeningGreen
         OrbState.THINKING -> (if (isBengali) "চিন্তাভাবনা করছি..." else "Thinking...") to OrbThinkingBlue
         OrbState.SPEAKING -> (if (isBengali) "বলছি..." else "Speaking...") to OrbSpeakingMagenta

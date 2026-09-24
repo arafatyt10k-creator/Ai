@@ -46,6 +46,7 @@ fun AiOrb(
                     OrbState.THINKING -> 1800
                     OrbState.SPEAKING -> 3200
                     OrbState.LISTENING -> 2400
+                    OrbState.WAKE_DETECTED -> 1200
                     else -> 6000
                 },
                 easing = LinearEasing
@@ -97,6 +98,7 @@ fun AiOrb(
     val primaryCoreColor by animateColorAsState(
         targetValue = when (state) {
             OrbState.IDLE -> OrbIdleCyan
+            OrbState.WAKE_DETECTED -> CyanNeon
             OrbState.LISTENING -> OrbListeningGreen
             OrbState.THINKING -> OrbThinkingBlue
             OrbState.SPEAKING -> OrbSpeakingMagenta
@@ -109,6 +111,7 @@ fun AiOrb(
     val secondaryCoreColor by animateColorAsState(
         targetValue = when (state) {
             OrbState.IDLE -> OrbIdlePurple
+            OrbState.WAKE_DETECTED -> Color(0xFF00E5FF)
             OrbState.LISTENING -> Color(0xFF00B0FF)
             OrbState.THINKING -> CyanNeon
             OrbState.SPEAKING -> Color(0xFFFF80AB)

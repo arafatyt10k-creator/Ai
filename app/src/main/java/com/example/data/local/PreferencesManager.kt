@@ -19,6 +19,9 @@ data class UserSettings(
     val aiStyle: AiResponseStyle = AiResponseStyle.BALANCED,
     val isMemoryEnabled: Boolean = true,
     val userName: String = "Explorer",
+    val assistantName: String = "NOVA",
+    val preferredAddress: String = "Boss",
+    val isWakeWordEnabled: Boolean = true,
     val isOnboardingCompleted: Boolean = false
 )
 
@@ -38,6 +41,9 @@ class PreferencesManager(context: Context) {
         val aiStyleStr = prefs.getString(KEY_AI_STYLE, AiResponseStyle.BALANCED.name) ?: AiResponseStyle.BALANCED.name
         val memoryEnabled = prefs.getBoolean(KEY_MEMORY_ENABLED, true)
         val userName = prefs.getString(KEY_USER_NAME, "User") ?: "User"
+        val assistantName = prefs.getString(KEY_ASSISTANT_NAME, "NOVA") ?: "NOVA"
+        val preferredAddress = prefs.getString(KEY_PREFERRED_ADDRESS, "Boss") ?: "Boss"
+        val wakeWordEnabled = prefs.getBoolean(KEY_WAKE_WORD_ENABLED, true)
         val onboarding = prefs.getBoolean(KEY_ONBOARDING, false)
 
         return UserSettings(
@@ -49,6 +55,9 @@ class PreferencesManager(context: Context) {
             aiStyle = try { AiResponseStyle.valueOf(aiStyleStr) } catch (e: Exception) { AiResponseStyle.BALANCED },
             isMemoryEnabled = memoryEnabled,
             userName = userName,
+            assistantName = assistantName,
+            preferredAddress = preferredAddress,
+            isWakeWordEnabled = wakeWordEnabled,
             isOnboardingCompleted = onboarding
         )
     }
@@ -93,6 +102,21 @@ class PreferencesManager(context: Context) {
         _settings.value = _settings.value.copy(userName = name)
     }
 
+    fun updateAssistantName(name: String) {
+        prefs.edit().putString(KEY_ASSISTANT_NAME, name).apply()
+        _settings.value = _settings.value.copy(assistantName = name)
+    }
+
+    fun updatePreferredAddress(address: String) {
+        prefs.edit().putString(KEY_PREFERRED_ADDRESS, address).apply()
+        _settings.value = _settings.value.copy(preferredAddress = address)
+    }
+
+    fun updateWakeWordEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_WAKE_WORD_ENABLED, enabled).apply()
+        _settings.value = _settings.value.copy(isWakeWordEnabled = enabled)
+    }
+
     fun completeOnboarding() {
         prefs.edit().putBoolean(KEY_ONBOARDING, true).apply()
         _settings.value = _settings.value.copy(isOnboardingCompleted = true)
@@ -107,6 +131,9 @@ class PreferencesManager(context: Context) {
         private const val KEY_AI_STYLE = "key_ai_style"
         private const val KEY_MEMORY_ENABLED = "key_memory_enabled"
         private const val KEY_USER_NAME = "key_user_name"
+        private const val KEY_ASSISTANT_NAME = "key_assistant_name"
+        private const val KEY_PREFERRED_ADDRESS = "key_preferred_address"
+        private const val KEY_WAKE_WORD_ENABLED = "key_wake_word_enabled"
         private const val KEY_ONBOARDING = "key_onboarding"
     }
 }

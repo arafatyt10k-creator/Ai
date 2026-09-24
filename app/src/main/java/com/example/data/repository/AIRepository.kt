@@ -18,7 +18,9 @@ interface AIRepository {
         imageBitmap: Bitmap? = null,
         systemInstruction: String? = null,
         language: AppLanguage = AppLanguage.BENGALI,
-        aiStyle: AiResponseStyle = AiResponseStyle.BALANCED
+        aiStyle: AiResponseStyle = AiResponseStyle.BALANCED,
+        assistantName: String = "NOVA",
+        preferredAddress: String = "Boss"
     ): Result<String>
 
     suspend fun translateText(
@@ -87,23 +89,30 @@ class AIRepositoryImpl(
         imageBitmap: Bitmap?,
         systemInstruction: String?,
         language: AppLanguage,
-        aiStyle: AiResponseStyle
+        aiStyle: AiResponseStyle,
+        assistantName: String,
+        preferredAddress: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val apiKey = getApiKey()
             val model = if (imageBitmap != null) AppConfig.DEFAULT_IMAGE_MODEL else AppConfig.DEFAULT_TEXT_MODEL
             
-            val baseSysText = (systemInstruction ?: if (language == AppLanguage.ENGLISH) {
+            var baseSysText = (systemInstruction ?: if (language == AppLanguage.ENGLISH) {
                 AppConfig.DEFAULT_SYSTEM_INSTRUCTION_EN
             } else {
                 AppConfig.DEFAULT_SYSTEM_INSTRUCTION_BN
-            }) + "\n" + aiStyle.promptModifier
+            })
             
-            val sysText = baseSysText + """
+            baseSysText = baseSysText
+                .replace("{{ASSISTANT_NAME}}", assistantName)
+                .replace("{{ADDRESS}}", preferredAddress)
             
-            If the user explicitly asks to CREATE A NOTE or REMINDER/TASK, you must return ONLY a JSON object and absolutely no other text, markdown, or backticks.
+            val sysText = baseSysText + "\n" + aiStyle.promptModifier + "\n" + """
+            
+            If the user explicitly asks to CREATE A NOTE, REMINDER/TASK, or OPEN AN APP (YouTube, Chrome, Facebook, etc.), you must return ONLY a JSON object and absolutely no other text, markdown, or backticks.
             For Note: {"action": "create_note", "title": "short title", "content": "note content", "category": "General"}
             For Task/Reminder: {"action": "create_task", "title": "task title", "description": "details", "priority": "HIGH|MEDIUM|LOW", "dueTimeString": "time/date if mentioned"}
+            For Open App: {"action": "open_app", "package": "app_name_or_keyword"}
             If it's a normal question or conversation, just answer normally. Never return JSON for normal chat.
             """.trimIndent()
 

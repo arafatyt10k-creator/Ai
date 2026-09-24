@@ -56,6 +56,75 @@ fun SettingsScreen(
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Assistant Identity Card
+            FuturisticCard(
+                borderColor = CyanNeon.copy(alpha = 0.3f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = if (isBengali) "🤖 অ্যাসিস্ট্যান্ট আইডেন্টিটি (Assistant Identity)" else "🤖 Assistant Identity",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = CyanNeon)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = settings.assistantName,
+                    onValueChange = { viewModel.preferencesManager.updateAssistantName(it) },
+                    label = { Text(if (isBengali) "অ্যাসিস্ট্যান্ট এর নাম" else "Assistant Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = CyanNeon,
+                        unfocusedBorderColor = CyanNeon.copy(alpha = 0.4f),
+                        focusedLabelColor = CyanNeon
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = settings.preferredAddress,
+                    onValueChange = { viewModel.preferencesManager.updatePreferredAddress(it) },
+                    label = { Text(if (isBengali) "আপনাকে কী বলে সম্বোধন করবে" else "Preferred Address (Sir/Boss/etc.)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = CyanNeon,
+                        unfocusedBorderColor = CyanNeon.copy(alpha = 0.4f),
+                        focusedLabelColor = CyanNeon
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isBengali) "ওয়েক ওয়ার্ড (Wake Word)" else "Wake Word Activation",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                        Text(
+                            text = if (isBengali) "নাম ধরে ডাকলে অ্যাসিস্ট্যান্ট সাড়া দিবে" else "Assistant responds when called by name",
+                            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        )
+                    }
+
+                    Switch(
+                        checked = settings.isWakeWordEnabled,
+                        onCheckedChange = { viewModel.preferencesManager.updateWakeWordEnabled(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = CyanNeon,
+                            checkedTrackColor = CyanNeon.copy(alpha = 0.3f)
+                        )
+                    )
+                }
+            }
+
             // Language Selection Card
             FuturisticCard(
                 borderColor = CyanNeon.copy(alpha = 0.3f),

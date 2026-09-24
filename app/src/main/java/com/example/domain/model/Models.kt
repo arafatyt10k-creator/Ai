@@ -2,6 +2,7 @@ package com.example.domain.model
 
 enum class OrbState {
     IDLE,
+    WAKE_DETECTED,
     LISTENING,
     THINKING,
     SPEAKING,
