@@ -1,0 +1,6 @@
+{
+  "name": "NOVA AI",
+  "description": "A smart futuristic personal AI assistant with Bengali and English support, Voice, Study Help, Creator Mode, Notes, Tasks, and more.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
